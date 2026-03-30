@@ -13,7 +13,7 @@ if ($method === 'GET') {
     $userId = $user['idU'];
 
     $stmt = $conn->prepare("
-        SELECT c.idCart, c.serviceId, c.durationMonths, s.nameService, s.descriptionS, s.price 
+        SELECT c.idCart, c.serviceId, c.durationMonths, c.domainName, s.nameService, s.descriptionS, s.price 
         FROM cart c 
         JOIN service s ON c.serviceId = s.idService 
         WHERE c.userId = ?
@@ -27,7 +27,12 @@ if ($method === 'GET') {
 
     while ($row = $result->fetch_assoc()) {
         $cartItems[] = $row;
-        $total += (float)$row['price'] * (int)$row['durationMonths'];
+        // If it's a domain, price is annual. durationMonths is total months.
+        if ($row['domainName']) {
+            $total += (float)$row['price'] * ((int)$row['durationMonths'] / 12);
+        } else {
+            $total += (float)$row['price'] * (int)$row['durationMonths'];
+        }
     }
 
     echo json_encode([
@@ -60,10 +65,23 @@ if ($method === 'GET') {
 
     $serviceId = intval($data->serviceId);
     $duration = isset($data->durationMonths) ? intval($data->durationMonths) : 1;
+    $domainName = isset($data->domainName) ? $conn->real_escape_string($data->domainName) : null;
     $userId = $user['idU'];
 
-    $stmt = $conn->prepare("SELECT idCart FROM cart WHERE userId = ? AND serviceId = ?");
-    $stmt->bind_param("ii", $userId, $serviceId);
+    // Check if item already in cart (same service AND same domain if applicable)
+    $checkSql = "SELECT idCart FROM cart WHERE userId = ? AND serviceId = ?";
+    if ($domainName) {
+        $checkSql .= " AND domainName = ?";
+    } else {
+        $checkSql .= " AND domainName IS NULL";
+    }
+
+    $stmt = $conn->prepare($checkSql);
+    if ($domainName) {
+        $stmt->bind_param("iis", $userId, $serviceId, $domainName);
+    } else {
+        $stmt->bind_param("ii", $userId, $serviceId);
+    }
     $stmt->execute();
     $res = $stmt->get_result();
 
@@ -75,8 +93,8 @@ if ($method === 'GET') {
 
         echo json_encode(["status" => "success", "message" => "Cart updated"]);
     } else {
-        $stmt = $conn->prepare("INSERT INTO cart (userId, serviceId, durationMonths) VALUES (?, ?, ?)");
-        $stmt->bind_param("iii", $userId, $serviceId, $duration);
+        $stmt = $conn->prepare("INSERT INTO cart (userId, serviceId, durationMonths, domainName) VALUES (?, ?, ?, ?)");
+        $stmt->bind_param("iiis", $userId, $serviceId, $duration, $domainName);
 
         if ($stmt->execute()) {
             echo json_encode([
@@ -86,8 +104,33 @@ if ($method === 'GET') {
             ]);
         } else {
             http_response_code(500);
-            echo json_encode(["status" => "error", "message" => "Insert failed"]);
+            echo json_encode(["status" => "error", "message" => "Insert failed: " . $conn->error]);
         }
+    }
+
+} elseif ($method === 'PUT') {
+
+    $raw_input = file_get_contents("php://input");
+    $data = json_decode($raw_input);
+
+    if (!isset($data->idCart) || !isset($data->durationMonths)) {
+        http_response_code(400);
+        echo json_encode(["status" => "error", "message" => "idCart and durationMonths are required"]);
+        exit;
+    }
+
+    $idCart = intval($data->idCart);
+    $duration = intval($data->durationMonths);
+    $userId = $user['idU'];
+
+    $stmt = $conn->prepare("UPDATE cart SET durationMonths = ? WHERE idCart = ? AND userId = ?");
+    $stmt->bind_param("iii", $duration, $idCart, $userId);
+
+    if ($stmt->execute()) {
+        echo json_encode(["status" => "success", "message" => "Item updated"]);
+    } else {
+        http_response_code(500);
+        echo json_encode(["status" => "error", "message" => "Update failed"]);
     }
 
 } elseif ($method === 'DELETE') {

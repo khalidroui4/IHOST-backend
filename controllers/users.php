@@ -54,7 +54,11 @@ if ($method === 'GET') {
         
         if ($stmt->execute()) {
             $res = $conn->query("SELECT idU, nameU, email, roleU, emailVerified, createdAt, first_name, last_name, username, location, website, bio, interests, instagram, twitter, avatar FROM users WHERE idU=$id");
-            echo json_encode(["status" => "success", "user" => $res->fetch_assoc(), "message" => "Profile updated successfully"]);
+            $user = $res->fetch_assoc();
+            $user['id'] = $user['idU'];
+            $user['name'] = $user['nameU'];
+            $user['role'] = $user['roleU'];
+            echo json_encode(["status" => "success", "user" => $user, "message" => "Profile updated successfully"]);
         } else {
             http_response_code(500);
             echo json_encode(["status" => "error", "message" => "Database update failed: " . $conn->error]);
@@ -71,7 +75,11 @@ if ($method === 'GET') {
                 $conn->query("UPDATE users SET avatar='$avatarUrl' WHERE idU=$id");
                 
                 $res = $conn->query("SELECT idU, nameU, email, roleU, emailVerified, createdAt, first_name, last_name, username, location, website, bio, interests, instagram, twitter, avatar FROM users WHERE idU=$id");
-                echo json_encode(["status" => "success", "avatar" => $avatarUrl, "user" => $res->fetch_assoc(), "message" => "Avatar uploaded successfully"]);
+                $user = $res->fetch_assoc();
+                $user['id'] = $user['idU'];
+                $user['name'] = $user['nameU'];
+                $user['role'] = $user['roleU'];
+                echo json_encode(["status" => "success", "avatar" => $avatarUrl, "user" => $user, "message" => "Avatar uploaded successfully"]);
             } else {
                 http_response_code(500);
                 echo json_encode(["status" => "error", "message" => "Upload failed on the server."]);
@@ -114,7 +122,11 @@ if ($method === 'GET') {
         } else {
             $conn->query("UPDATE users SET email='$email' WHERE idU=$id");
             $res = $conn->query("SELECT idU, nameU, email, roleU, emailVerified, createdAt, first_name, last_name, username, location, website, bio, interests, instagram, twitter, avatar FROM users WHERE idU=$id");
-            echo json_encode(["status" => "success", "message" => "Email updated successfully", "user" => $res->fetch_assoc()]);
+            $user = $res->fetch_assoc();
+            $user['id'] = $user['idU'];
+            $user['name'] = $user['nameU'];
+            $user['role'] = $user['roleU'];
+            echo json_encode(["status" => "success", "message" => "Email updated successfully", "user" => $user]);
         }
     } else {
         http_response_code(400);

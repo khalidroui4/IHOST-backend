@@ -27,7 +27,8 @@ CREATE TABLE service (
     descriptionS TEXT,
     price DECIMAL(10,2),
     durationMonths INT,
-    isActive BOOLEAN DEFAULT TRUE
+    isActive BOOLEAN DEFAULT TRUE,
+    typeService VARCHAR(50) DEFAULT 'hosting'
 );
 
 CREATE TABLE subscription (
@@ -48,6 +49,16 @@ CREATE TABLE orders (
     statusOrder ENUM('pending','paid','cancelled'),
     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (userId) REFERENCES users(idU)
+);
+
+CREATE TABLE order_items (
+    idOrderItem INT PRIMARY KEY AUTO_INCREMENT,
+    orderId INT,
+    serviceId INT,
+    durationMonths INT,
+    price DECIMAL(10,2),
+    FOREIGN KEY (orderId) REFERENCES orders(idOrder) ON DELETE CASCADE,
+    FOREIGN KEY (serviceId) REFERENCES service(idService)
 );
 
 CREATE TABLE payement (
@@ -245,10 +256,22 @@ END $$
 DELIMITER ;
 
 
-
-select * from users;
-
-
-
-
-
+INSERT INTO service (nameService, descriptionS, price, durationMonths, isActive, typeService) VALUES
+('Starter', '1 Site, 10 GB SSD, SSL Gratuit', 29.00, 1, 1, 'hosting'),
+('Pro', '10 Sites, 50 GB SSD, Backup Auto', 59.00, 1, 1, 'hosting'),
+('Business', 'Sites illimités, 100 GB SSD, Vitesse Max', 99.00, 1, 1, 'hosting'),
+('Cloud Basic', '2 vCPU, 4 GB RAM, 80 GB SSD', 149.00, 1, 1, 'cloud'),
+('Cloud Pro', '4 vCPU, 8 GB RAM, 160 GB SSD', 249.00, 1, 1, 'cloud'),
+('Cloud Ent.', '8 vCPU, 16 GB RAM, 320 GB SSD', 449.00, 1, 1, 'cloud'),
+('Domaine .MA', 'Identité Marocaine, DNS Manager', 150.00, 12, 1, 'domain'),
+('Domaine .COM', 'Standard Mondial, Full Control', 120.00, 12, 1, 'domain'),
+('Domaine .ONLINE', 'Promo Limitée, Instant Active', 40.00, 12, 1, 'domain'),
+('Positive SSL', 'Validation de Domaine, Cadenas Vert', 89.00, 12, 1, 'ssl'),
+('Wildcard SSL', 'Sous-domaines illimités, Sécurité Max', 890.00, 12, 1, 'ssl'),
+('EV SSL', 'Barre verte, Validation Entreprise', 1490.00, 12, 1, 'ssl'),
+('Mail Basic', '5 Go Stockage, Antispam', 19.00, 1, 1, 'email'),
+('Mail Pro', '50 Go Stockage, Calendrier partagé', 49.00, 1, 1, 'email'),
+('Exchange', '100 Go Stockage, Synchro ActiveSync', 99.00, 1, 1, 'email'),
+('CLOUD STARTER', '1 Site Web (LVE Restricted), 10 GB Stockage (NVMe Gen4), Email Pro (Exim/IMAP), SSL Gratuit (Let''s Encrypt), Support 24/7 (Ticket/Chat)', 39.00, 1, 1, 'hosting'),
+('VPS PRO-X', '4 vCore EPYC (Milan/Genoa), 8 GB DDR4 RAM (ECC Registered), 100 GB Stockage (Raid 10 NVMe), Snapshot (Daily Backup), Network (1 Gbps Port)', 129.00, 1, 1, 'cloud'),
+('BUSINESS CORE', 'Unlimited Sites (Apache/Nginx), Unlimited Space (Pure NVMe), WAF Protection (BitNinja/Luxe), Daily Backups (JetBackup), Dedicated IP (IPv4/IPv6)', 99.00, 1, 1, 'hosting');

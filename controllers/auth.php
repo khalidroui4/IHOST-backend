@@ -6,6 +6,32 @@ $method = $_SERVER['REQUEST_METHOD'];
 // Because index.php splits by '/', $parts[1] would be 'login' if url is /IHOST-backend/auth/login
 $action = isset($parts[1]) ? $parts[1] : '';
 
+if ($method === 'GET') {
+    if ($action === 'me') {
+        require __DIR__ . '/../middleware/authMiddleware.php';
+        $userAuth = authenticate();
+        $id = $userAuth['idU'];
+        
+        $stmt = $conn->prepare("SELECT idU, nameU, email, roleU, emailVerified, createdAt, first_name, last_name, username, location, website, bio, interests, instagram, twitter, avatar FROM users WHERE idU = ?");
+        $stmt->bind_param("i", $id);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        
+        if ($result->num_rows > 0) {
+            $user = $result->fetch_assoc();
+            // Map DB keys to Frontend keys for consistency
+            $user['id'] = $user['idU'];
+            $user['name'] = $user['nameU'];
+            $user['role'] = $user['roleU'];
+            echo json_encode(["status" => "success", "user" => $user]);
+        } else {
+            http_response_code(404);
+            echo json_encode(["status" => "error", "message" => "User not found"]);
+        }
+        exit;
+    }
+}
+
 if ($method === 'POST') {
     if ($action === 'login') {
         $data = json_decode(file_get_contents("php://input"));
@@ -18,7 +44,7 @@ if ($method === 'POST') {
         $email = $conn->real_escape_string($data->email);
         $password = $data->password;
 
-        $stmt = $conn->prepare("SELECT idU, nameU, email, passwordU, roleU FROM users WHERE email = ?");
+        $stmt = $conn->prepare("SELECT idU, nameU, email, passwordU, roleU, first_name, last_name, username, avatar FROM users WHERE email = ?");
         $stmt->bind_param("s", $email);
         $stmt->execute();
         $result = $stmt->get_result();
@@ -31,15 +57,16 @@ if ($method === 'POST') {
                 $tokenPayload = ["idU" => $user['idU'], "roleU" => $user['roleU'], "nameU" => $user['nameU']];
                 $token = base64_encode(json_encode($tokenPayload));
 
+                // Map DB keys to Frontend keys
+                $user['id'] = $user['idU'];
+                $user['name'] = $user['nameU'];
+                $user['role'] = $user['roleU'];
+                unset($user['passwordU']); // Don't return password hash
+
                 echo json_encode([
                     "status" => "success",
                     "token" => $token,
-                    "user" => [
-                        "id" => $user['idU'],
-                        "name" => $user['nameU'],
-                        "email" => $user['email'],
-                        "role" => $user['roleU']
-                    ]
+                    "user" => $user
                 ]);
             } else {
                 http_response_code(401);
@@ -59,10 +86,35 @@ if ($method === 'POST') {
 
         $name = $conn->real_escape_string($data->first_name . ' ' . $data->last_name);
         $email = $conn->real_escape_string($data->email);
+        $username = isset($data->username) ? $conn->real_escape_string($data->username) : null;
+        $first_name = isset($data->first_name) ? $conn->real_escape_string($data->first_name) : null;
+        $last_name = isset($data->last_name) ? $conn->real_escape_string($data->last_name) : null;
         $password = password_hash($data->password, PASSWORD_BCRYPT);
         
-        $stmt = $conn->prepare("INSERT INTO users (nameU, email, passwordU, roleU) VALUES (?, ?, ?, 'client')");
-        $stmt->bind_param("sss", $name, $email, $password);
+        // Check if email already exists
+        $checkEmail = $conn->prepare("SELECT idU FROM users WHERE email = ?");
+        $checkEmail->bind_param("s", $email);
+        $checkEmail->execute();
+        if ($checkEmail->get_result()->num_rows > 0) {
+            http_response_code(400);
+            echo json_encode(["status" => "error", "message" => "Cet email est déjà utilisé par un autre compte."]);
+            exit;
+        }
+
+        // Check if username already exists
+        if ($username) {
+            $checkUser = $conn->prepare("SELECT idU FROM users WHERE username = ?");
+            $checkUser->bind_param("s", $username);
+            $checkUser->execute();
+            if ($checkUser->get_result()->num_rows > 0) {
+                http_response_code(400);
+                echo json_encode(["status" => "error", "message" => "Ce nom d'utilisateur est déjà pris."]);
+                exit;
+            }
+        }
+
+        $stmt = $conn->prepare("INSERT INTO users (nameU, email, passwordU, roleU, first_name, last_name, username) VALUES (?, ?, ?, 'client', ?, ?, ?)");
+        $stmt->bind_param("ssssss", $name, $email, $password, $first_name, $last_name, $username);
         
         if ($stmt->execute()) {
             echo json_encode(["status" => "success", "message" => "User registered successfully"]);

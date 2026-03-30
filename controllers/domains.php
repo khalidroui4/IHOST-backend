@@ -2,12 +2,13 @@
 require __DIR__ . '/../config/db.php';
 require_once __DIR__ . '/../middleware/authMiddleware.php';
 
-$user = authenticate();
+
 $method = $_SERVER['REQUEST_METHOD'];
 $action = isset($parts[1]) ? $parts[1] : '';
 
 if ($method === 'GET') {
     if ($action === 'user') {
+        $user = authenticate();
         $userId = isset($parts[2]) ? intval($parts[2]) : $user['idU'];
         $stmt = $conn->prepare("SELECT * FROM domaine WHERE userId = ?");
         $stmt->bind_param("i", $userId);
@@ -26,15 +27,36 @@ if ($method === 'GET') {
             exit;
         }
         
-        // Use DNS check as a real/mock proxy for availability since pure WHOIS via shell on Windows is prone to failure.
-        $hasDns = checkdnsrr($domain, 'ANY');
-        if ($hasDns) {
+        $url = "https://rdap.org/domain/" . urlencode($domain);
+        
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'IHOST-Backend/1.0 (Real Domain Search)');
+        
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        
+        if ($httpCode === 200) {
             echo json_encode(["status" => "success", "available" => false, "domain" => $domain]);
-        } else {
+        } elseif ($httpCode === 404) {
             echo json_encode(["status" => "success", "available" => true, "domain" => $domain]);
+        } else {
+            $hasDns = checkdnsrr($domain, 'ANY');
+            echo json_encode([
+                "status" => "success", 
+                "available" => !$hasDns, 
+                "domain" => $domain,
+                "via" => "dns_fallback",
+                "code" => $httpCode
+            ]);
         }
     }
 } elseif ($method === 'POST') {
+    $user = authenticate();
     $data = json_decode(file_get_contents("php://input"));
     $domain = $conn->real_escape_string($data->domainName);
     $stmt = $conn->prepare("INSERT INTO domaine (userId, domainName, expirationDate, statusDomaine) VALUES (?, ?, DATE_ADD(CURDATE(), INTERVAL 1 YEAR), 'active')");

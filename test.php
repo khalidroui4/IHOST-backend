@@ -1,7 +1,7 @@
 <?php
-require __DIR__ . '/config/db.php';
-$res = $conn->query("SELECT * FROM service");
-$data = [];
-while($row = $res->fetch_assoc()) $data[] = $row;
-print_r($data);
-    
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+echo "Starting seed...\n";
+require 'seed_all_services.php';
+echo "Seed finished.\n";
+?>

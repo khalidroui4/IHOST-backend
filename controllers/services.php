@@ -17,8 +17,8 @@ if ($method === 'GET') {
     // POST, PUT, DELETE for Admin
     if ($method === 'POST') {
         $data = json_decode(file_get_contents("php://input"));
-        $stmt = $conn->prepare("INSERT INTO service (nameService, descriptionS, price, durationMonths) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("ssdi", $data->nameService, $data->descriptionS, $data->price, $data->durationMonths);
+        $stmt = $conn->prepare("INSERT INTO service (nameService, descriptionS, price, durationMonths, typeService, isActive) VALUES (?, ?, ?, ?, ?, 1)");
+        $stmt->bind_param("ssdis", $data->nameService, $data->descriptionS, $data->price, $data->durationMonths, $data->typeService);
         if ($stmt->execute()) {
             echo json_encode(["status" => "success", "message" => "Service created"]);
         } else {
@@ -27,9 +27,9 @@ if ($method === 'GET') {
     } elseif ($method === 'PUT') {
         $id = intval($action);
         $data = json_decode(file_get_contents("php://input"));
-        $stmt = $conn->prepare("UPDATE service SET nameService=?, descriptionS=?, price=?, durationMonths=?, isActive=? WHERE idService=?");
-        $active = isset($data->isActive) ? $data->isActive : 1;
-        $stmt->bind_param("ssdiii", $data->nameService, $data->descriptionS, $data->price, $data->durationMonths, $active, $id);
+        $stmt = $conn->prepare("UPDATE service SET nameService=?, descriptionS=?, price=?, durationMonths=?, typeService=?, isActive=? WHERE idService=?");
+        $active = isset($data->isActive) ? (int)$data->isActive : 1;
+        $stmt->bind_param("ssdisii", $data->nameService, $data->descriptionS, $data->price, $data->durationMonths, $data->typeService, $active, $id);
         if ($stmt->execute()) {
             echo json_encode(["status" => "success", "message" => "Service updated"]);
         } else {

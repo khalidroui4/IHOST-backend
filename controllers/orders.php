@@ -24,7 +24,12 @@ if ($method === 'GET') {
         echo json_encode(["status" => "success", "data" => $orders]);
     } else {
         requireAdmin();
-        $result = $conn->query("SELECT * FROM orders ORDER BY createdAt DESC");
+        $result = $conn->query("
+            SELECT o.*, u.nameU, u.email 
+            FROM orders o 
+            JOIN users u ON o.userId = u.idU 
+            ORDER BY o.createdAt DESC
+        ");
         $orders = [];
         while($row = $result->fetch_assoc()) {
             $orders[] = $row;
@@ -37,7 +42,7 @@ if ($method === 'GET') {
 
     // 1. Fetch cart items
     $cartStmt = $conn->prepare("
-        SELECT c.idCart, c.serviceId, c.durationMonths, s.price 
+        SELECT c.idCart, c.serviceId, c.durationMonths, c.domainName, s.price 
         FROM cart c 
         JOIN service s ON c.serviceId = s.idService 
         WHERE c.userId = ?
@@ -55,31 +60,36 @@ if ($method === 'GET') {
     $totalAmount = 0;
     while($row = $cartRes->fetch_assoc()) {
         $cartItems[] = $row;
-        $totalAmount += (float)$row['price'] * (int)$row['durationMonths'];
+        // If it's a domain, price is annual. durationMonths is total months.
+        if ($row['domainName']) {
+            $totalAmount += (float)$row['price'] * ((int)$row['durationMonths'] / 12);
+        } else {
+            $totalAmount += (float)$row['price'] * (int)$row['durationMonths'];
+        }
     }
 
-    // Include 20% VAT in the total for the order
-    $totalTTC = $totalAmount * 1.20;
+    // TVA removal: Total is now exactly the sum of item prices
+    $totalFinal = $totalAmount;
 
     $conn->begin_transaction();
     try {
         // 2. Create the main Order
         $stmt = $conn->prepare("INSERT INTO orders (userId, totalAmount, statusOrder) VALUES (?, ?, 'pending')");
-        $stmt->bind_param("id", $userId, $totalTTC);
+        $stmt->bind_param("id", $userId, $totalFinal);
         $stmt->execute();
         $orderId = $conn->insert_id;
 
         // 3. Create Order Items
-        $itemStmt = $conn->prepare("INSERT INTO order_items (orderId, serviceId, durationMonths, price) VALUES (?, ?, ?, ?)");
+        $itemStmt = $conn->prepare("INSERT INTO order_items (orderId, serviceId, durationMonths, price, domainName) VALUES (?, ?, ?, ?, ?)");
         foreach($cartItems as $item) {
-            $itemStmt->bind_param("iiid", $orderId, $item['serviceId'], $item['durationMonths'], $item['price']);
+            $itemStmt->bind_param("iiids", $orderId, $item['serviceId'], $item['durationMonths'], $item['price'], $item['domainName']);
             $itemStmt->execute();
         }
 
         // 4. Create Invoice (Facture)
         $invNumber = "INV-" . time() . "-" . $orderId;
         $invStmt = $conn->prepare("INSERT INTO facture (orderId, invoiceNumber, amount, statusFacture) VALUES (?, ?, ?, 'unpaid')");
-        $invStmt->bind_param("isd", $orderId, $invNumber, $totalTTC);
+        $invStmt->bind_param("isd", $orderId, $invNumber, $totalFinal);
         $invStmt->execute();
 
         // 5. Clear the User's Cart

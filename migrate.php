@@ -1,23 +1,24 @@
 <?php
-require __DIR__ . '/config/db.php';
-
-$queries = [
-    "ALTER TABLE users ADD COLUMN first_name VARCHAR(50) NULL AFTER nameU",
-    "ALTER TABLE users ADD COLUMN last_name VARCHAR(50) NULL AFTER first_name",
-    "ALTER TABLE users ADD COLUMN username VARCHAR(50) NULL UNIQUE AFTER last_name",
-    "ALTER TABLE users ADD COLUMN location VARCHAR(100) NULL AFTER emailVerified",
-    "ALTER TABLE users ADD COLUMN website VARCHAR(255) NULL AFTER location",
-    "ALTER TABLE users ADD COLUMN bio TEXT NULL AFTER website",
-    "ALTER TABLE users ADD COLUMN interests VARCHAR(255) NULL AFTER bio",
-    "ALTER TABLE users ADD COLUMN instagram VARCHAR(50) NULL AFTER interests",
-    "ALTER TABLE users ADD COLUMN twitter VARCHAR(50) NULL AFTER instagram",
-    "ALTER TABLE users ADD COLUMN avatar VARCHAR(255) NULL AFTER twitter"
-];
-
-foreach ($queries as $q) {
-    if ($conn->query($q) === TRUE) {
-        echo "Executed: $q\n";
-    } else {
-        echo "Failed or exists: $q (" . $conn->error . ")\n";
-    }
+$conn = new mysqli("127.0.0.1", "root", "", "ihost");
+if ($conn->connect_error) {
+    die("Connection failed: " . $conn->connect_error);
 }
+
+// Add domainName to cart
+$conn->query("ALTER TABLE cart ADD COLUMN domainName VARCHAR(255) NULL");
+if ($conn->error) {
+    echo "Cart alter error: " . $conn->error . "\n";
+} else {
+    echo "Cart updated successfully.\n";
+}
+
+// Add domainName to order_items
+$conn->query("ALTER TABLE order_items ADD COLUMN domainName VARCHAR(255) NULL");
+if ($conn->error) {
+    echo "Order items alter error: " . $conn->error . "\n";
+} else {
+    echo "Order items updated successfully.\n";
+}
+
+$conn->close();
+?>
