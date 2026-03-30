@@ -26,6 +26,11 @@ if ($method === 'GET') {
             echo json_encode(["status" => "error", "message" => "Domain name required"]);
             exit;
         }
+
+        // Basic normalization: if no dot is present, default to .com
+        if (strpos($domain, '.') === false) {
+            $domain .= ".com";
+        }
         
         $url = "https://rdap.org/domain/" . urlencode($domain);
         
@@ -33,25 +38,34 @@ if ($method === 'GET') {
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'IHOST-Backend/1.0 (Real Domain Search)');
+        curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'IHOST-Registry-Checker/2.0 (Compatible; RealCheck)');
         
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $error = curl_error($ch);
         curl_close($ch);
         
         if ($httpCode === 200) {
-            echo json_encode(["status" => "success", "available" => false, "domain" => $domain]);
+            // Domain is definitely registered
+            echo json_encode(["status" => "success", "available" => false, "domain" => $domain, "source" => "rdap"]);
         } elseif ($httpCode === 404) {
-            echo json_encode(["status" => "success", "available" => true, "domain" => $domain]);
+            // Domain is likely available, but let's double check via DNS as secondary verification
+            if (checkdnsrr($domain, 'A') || checkdnsrr($domain, 'MX') || checkdnsrr($domain, 'NS')) {
+                echo json_encode(["status" => "success", "available" => false, "domain" => $domain, "source" => "dns_check"]);
+            } else {
+                echo json_encode(["status" => "success", "available" => true, "domain" => $domain, "source" => "rdap_confirm"]);
+            }
         } else {
-            $hasDns = checkdnsrr($domain, 'ANY');
+            // Fallback to purely DNS check if RDAP is down or restricted
+            $isTaken = checkdnsrr($domain, 'A') || checkdnsrr($domain, 'MX') || checkdnsrr($domain, 'NS') || (gethostbyname($domain) !== $domain);
             echo json_encode([
                 "status" => "success", 
-                "available" => !$hasDns, 
+                "available" => !$isTaken, 
                 "domain" => $domain,
-                "via" => "dns_fallback",
-                "code" => $httpCode
+                "source" => "dns_fallback",
+                "debug_code" => $httpCode
             ]);
         }
     }
