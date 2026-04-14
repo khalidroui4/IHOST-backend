@@ -27,7 +27,6 @@ if ($method === 'GET') {
             exit;
         }
 
-        // Basic normalization: if no dot is present, default to .com
         if (strpos($domain, '.') === false) {
             $domain .= ".com";
         }
