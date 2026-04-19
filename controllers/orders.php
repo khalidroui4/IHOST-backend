@@ -19,6 +19,29 @@ if ($method === 'GET') {
         $result = $stmt->get_result();
         $orders = [];
         while($row = $result->fetch_assoc()) {
+            // Fetch order items with service details
+            $itemStmt = $conn->prepare("
+                SELECT oi.*, s.nameService, s.typeService 
+                FROM order_items oi 
+                JOIN service s ON oi.serviceId = s.idService 
+                WHERE oi.orderId = ?
+            ");
+            $itemStmt->bind_param("i", $row['idOrder']);
+            $itemStmt->execute();
+            $itemResult = $itemStmt->get_result();
+            $items = [];
+            $labels = [];
+            while($item = $itemResult->fetch_assoc()) {
+                $items[] = $item;
+                // Build a human-readable label
+                if ($item['domainName']) {
+                    $labels[] = $item['domainName'] . ' - Domaine';
+                } else {
+                    $labels[] = $item['nameService'];
+                }
+            }
+            $row['items'] = $items;
+            $row['label'] = implode(', ', $labels);
             $orders[] = $row;
         }
         echo json_encode(["status" => "success", "data" => $orders]);
@@ -96,6 +119,8 @@ if ($method === 'GET') {
         $clearStmt = $conn->prepare("DELETE FROM cart WHERE userId = ?");
         $clearStmt->bind_param("i", $userId);
         $clearStmt->execute();
+
+        logActivity($conn, $userId, 'order', "Commande #" . $orderId, 'unpaid');
 
         $conn->commit();
         echo json_encode(["status" => "success", "message" => "Order created successfully", "orderId" => $orderId, "invoiceNumber" => $invNumber]);

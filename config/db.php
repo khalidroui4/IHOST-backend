@@ -23,4 +23,18 @@ if ($conn->connect_error) {
     die(json_encode(["status" => "error", "message" => "Connection failed: " . $conn->connect_error]));
 }
 $conn->set_charset("utf8");
+
+function logActivity($conn, $userId, $type, $title, $status) {
+    if (!$userId) return;
+    $actionLog = json_encode([
+        "type" => $type,
+        "title" => $title,
+        "status" => $status
+    ], JSON_UNESCAPED_UNICODE);
+    $stmt = $conn->prepare("INSERT INTO log (userId, actionLog) VALUES (?, ?)");
+    if ($stmt) {
+        $stmt->bind_param("is", $userId, $actionLog);
+        $stmt->execute();
+    }
+}
 ?>

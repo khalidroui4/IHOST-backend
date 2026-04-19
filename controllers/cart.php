@@ -97,6 +97,18 @@ if ($method === 'GET') {
         $stmt->bind_param("iiis", $userId, $serviceId, $duration, $domainName);
 
         if ($stmt->execute()) {
+            
+            // We fetch the service name to record an accurate log
+            $sNameStmt = $conn->prepare("SELECT nameService FROM service WHERE idService = ?");
+            if ($sNameStmt) {
+                $sNameStmt->bind_param("i", $serviceId);
+                $sNameStmt->execute();
+                $sNameRes = $sNameStmt->get_result();
+                if ($sRow = $sNameRes->fetch_assoc()) {
+                    logActivity($conn, $userId, 'cart', "Added to cart: " . $sRow['nameService'], 'Panier');
+                }
+            }
+
             echo json_encode([
                 "status" => "success",
                 "message" => "Added to cart",

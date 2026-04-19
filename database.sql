@@ -27,8 +27,7 @@ CREATE TABLE service (
     descriptionS TEXT,
     price DECIMAL(10,2),
     durationMonths INT,
-    isActive BOOLEAN DEFAULT TRUE,
-    typeService VARCHAR(50) DEFAULT 'hosting'
+    isActive BOOLEAN DEFAULT TRUE
 );
 
 CREATE TABLE subscription (
@@ -51,16 +50,6 @@ CREATE TABLE orders (
     FOREIGN KEY (userId) REFERENCES users(idU)
 );
 
-CREATE TABLE order_items (
-    idOrderItem INT PRIMARY KEY AUTO_INCREMENT,
-    orderId INT,
-    serviceId INT,
-    durationMonths INT,
-    price DECIMAL(10,2),
-    FOREIGN KEY (orderId) REFERENCES orders(idOrder) ON DELETE CASCADE,
-    FOREIGN KEY (serviceId) REFERENCES service(idService)
-);
-
 CREATE TABLE payement (
     idPay INT PRIMARY KEY AUTO_INCREMENT,
     orderId INT,
@@ -79,6 +68,16 @@ CREATE TABLE facture (
     statusFacture ENUM('unpaid','paid'),
     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (orderId) REFERENCES orders(idOrder)
+);
+
+CREATE TABLE order_items (
+    idOrderItem INT PRIMARY KEY AUTO_INCREMENT,
+    orderId INT,
+    serviceId INT,
+    durationMonths INT,
+    price DECIMAL(10,2),
+    FOREIGN KEY (orderId) REFERENCES orders(idOrder) ON DELETE CASCADE,
+    FOREIGN KEY (serviceId) REFERENCES service(idService)
 );
 
 CREATE TABLE domaine (
@@ -142,7 +141,23 @@ CREATE TABLE log (
     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (userId) REFERENCES users(idU) ON DELETE SET NULL
 );
-
+ALTER TABLE domaine
+    ADD COLUMN auto_renew    BOOLEAN        DEFAULT TRUE  ,
+    ADD COLUMN is_locked     BOOLEAN        DEFAULT FALSE,
+    ADD COLUMN whois_privacy BOOLEAN        DEFAULT FALSE AFTER is_locked,
+    ADD COLUMN ns1           VARCHAR(255)   DEFAULT NULL  AFTER whois_privacy;
+    
+CREATE TABLE IF NOT EXISTS dns_records (
+    idRecord    INT PRIMARY KEY AUTO_INCREMENT,
+    domaineId   INT          NOT NULL,
+    type        ENUM('A','CNAME','MX') NOT NULL,
+    name        VARCHAR(255) NOT NULL,
+    value       VARCHAR(255) NOT NULL,
+    priority    INT          DEFAULT NULL,
+    ttl         INT          DEFAULT 3600,
+    createdAt   TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (domaineId) REFERENCES domaine(idDomaine) ON DELETE CASCADE
+);
 DELIMITER $$
 CREATE FUNCTION is_domain_expired(expDate DATE)
 RETURNS BOOLEAN
@@ -254,7 +269,6 @@ BEGIN
     CLOSE cur;
 END $$
 DELIMITER ;
-
 
 INSERT INTO service (nameService, descriptionS, price, durationMonths, isActive, typeService) VALUES
 ('Starter', '1 Site, 10 GB SSD, SSL Gratuit', 29.00, 1, 1, 'hosting'),

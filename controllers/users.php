@@ -58,6 +58,9 @@ if ($method === 'GET') {
             $user['id'] = $user['idU'];
             $user['name'] = $user['nameU'];
             $user['role'] = $user['roleU'];
+            
+            logActivity($conn, $id, 'system', "Mise à jour du profil (" . trim($fname . ' ' . $lname) . ")", 'info');
+            
             echo json_encode(["status" => "success", "user" => $user, "message" => "Profile updated successfully"]);
         } else {
             http_response_code(500);
@@ -79,6 +82,9 @@ if ($method === 'GET') {
                 $user['id'] = $user['idU'];
                 $user['name'] = $user['nameU'];
                 $user['role'] = $user['roleU'];
+                
+                logActivity($conn, $id, 'system', "Mise à jour de l'avatar", 'info');
+
                 echo json_encode(["status" => "success", "avatar" => $avatarUrl, "user" => $user, "message" => "Avatar uploaded successfully"]);
             } else {
                 http_response_code(500);
@@ -100,6 +106,9 @@ if ($method === 'GET') {
         if (password_verify($old, $user['passwordU'])) {
             $hashed = password_hash($new, PASSWORD_DEFAULT);
             $conn->query("UPDATE users SET passwordU='$hashed' WHERE idU=$id");
+            
+            logActivity($conn, $id, 'system', "Mot de passe modifié", 'warning');
+
             echo json_encode(["status" => "success", "message" => "Password updated successfully"]);
         } else {
             http_response_code(400);
@@ -126,6 +135,9 @@ if ($method === 'GET') {
             $user['id'] = $user['idU'];
             $user['name'] = $user['nameU'];
             $user['role'] = $user['roleU'];
+            
+            logActivity($conn, $id, 'system', "Adresse email modifiée", 'info');
+
             echo json_encode(["status" => "success", "message" => "Email updated successfully", "user" => $user]);
         }
     } else {

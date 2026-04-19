@@ -35,22 +35,41 @@ if ($method === 'GET') {
         $stmt->bind_param("isd", $orderId, $payMethod, $amount);
         $stmt->execute();
 
-        // 2. Update Order Status
+        // 2. Update Order + Facture Status
         $conn->query("UPDATE orders SET statusOrder='paid' WHERE idOrder=$orderId");
+        $conn->query("UPDATE facture SET statusFacture='paid' WHERE orderId=$orderId");
 
-        // trigger payment_success sets facture to paid automatically
-
-        // 3. Activate subscriptions for all items in the order
+        // 3. Activate subscriptions and register domains for all items in the order
         $uId = $user['idU'];
-        $itemsRes = $conn->query("SELECT serviceId FROM order_items WHERE orderId=$orderId");
+        $itemsRes = $conn->query("
+            SELECT oi.serviceId, oi.domainName, s.typeService 
+            FROM order_items oi 
+            JOIN service s ON oi.serviceId = s.idService 
+            WHERE oi.orderId=$orderId
+        ");
         if ($itemsRes && $itemsRes->num_rows > 0) {
             $callStmt = $conn->prepare("CALL activate_subscription(?, ?)");
+            $domStmt = $conn->prepare("INSERT IGNORE INTO domaine (userId, domainName, expirationDate, statusDomaine) VALUES (?, ?, DATE_ADD(CURDATE(), INTERVAL 12 MONTH), 'active')");
+
             while($item = $itemsRes->fetch_assoc()) {
                 $sId = $item['serviceId'];
+                $dName = $item['domainName'] ?? null;
+                $sType = $item['typeService'];
+                
+                // Activate subscription
                 $callStmt->bind_param("ii", $uId, $sId);
                 $callStmt->execute();
+
+                // If it's a domain, populate the domaine table
+                if ($sType === 'domain' && $dName) {
+                    $domStmt->bind_param("is", $uId, $dName);
+                    $domStmt->execute();
+                    logActivity($conn, $uId, 'domain_registered', "Domaine enregistré: " . $dName, 'active');
+                }
             }
         }
+
+        logActivity($conn, $uId, 'payment', "Paiement de " . $amount . " DH", 'success');
 
         $conn->commit();
         echo json_encode(["status" => "success", "message" => "Payment successful. Subscriptions activated."]);

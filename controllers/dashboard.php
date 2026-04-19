@@ -37,23 +37,30 @@ if ($method === 'GET') {
     $stmt->execute();
     $totalOrders = $stmt->get_result()->fetch_assoc()['count'];
 
-    // 5. Recent Activity (Unified Timeline)
-    // We combine recent orders, payments, and support tickets
-    $activityQuery = "
-        (SELECT 'order' as type, statusOrder as status, createdAt as date, CONCAT('Commande #', idOrder) as title FROM orders WHERE userId = ?)
-        UNION
-        (SELECT 'payment' as type, statusPay as status, paidAt as date, CONCAT('Paiement de ', amount, ' DH') as title FROM payement p JOIN orders o ON p.orderId = o.idOrder WHERE o.userId = ?)
-        UNION
-        (SELECT 'support' as type, statusSupport as status, createdAt as date, subjectSupport as title FROM support WHERE userId = ?)
-        ORDER BY date DESC LIMIT 10
-    ";
+    // 5. Recent Activity (Unified Timeline from Log Table)
+    $activityQuery = "SELECT idLog, userId, actionLog, createdAt FROM log WHERE userId = ? ORDER BY createdAt DESC LIMIT 10";
     $stmt = $conn->prepare($activityQuery);
-    $stmt->bind_param("iii", $userId, $userId, $userId);
+    $stmt->bind_param("i", $userId);
     $stmt->execute();
     $activityRes = $stmt->get_result();
     $activity = [];
     while($row = $activityRes->fetch_assoc()) {
-        $activity[] = $row;
+        $decoded = json_decode($row['actionLog'], true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            $activity[] = [
+                'type' => isset($decoded['type']) ? $decoded['type'] : 'system',
+                'title' => isset($decoded['title']) ? $decoded['title'] : 'Action',
+                'status' => isset($decoded['status']) ? $decoded['status'] : 'info',
+                'date' => $row['createdAt']
+            ];
+        } else {
+            $activity[] = [
+                'type' => 'system',
+                'title' => $row['actionLog'],
+                'status' => 'info',
+                'date' => $row['createdAt']
+            ];
+        }
     }
 
     // 6. Recent Notifications

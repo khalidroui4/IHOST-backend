@@ -12,13 +12,35 @@ if ($method === 'GET') {
         if ($user['roleU'] !== 'admin' && $userId !== $user['idU']) {
             http_response_code(403); exit;
         }
-        // we join orders to get user id
-        $stmt = $conn->prepare("SELECT f.* FROM facture f JOIN orders o ON f.orderId = o.idOrder WHERE o.userId = ? ORDER BY f.createdAt DESC");
+        // Only return paid invoices (receipts)
+        $stmt = $conn->prepare("SELECT f.* FROM facture f JOIN orders o ON f.orderId = o.idOrder WHERE o.userId = ? AND f.statusFacture = 'paid' ORDER BY f.createdAt DESC");
         $stmt->bind_param("i", $userId);
         $stmt->execute();
         $result = $stmt->get_result();
         $factures = [];
         while($row = $result->fetch_assoc()) {
+            // Fetch order items with service details
+            $itemStmt = $conn->prepare("
+                SELECT oi.*, s.nameService, s.typeService 
+                FROM order_items oi 
+                JOIN service s ON oi.serviceId = s.idService 
+                WHERE oi.orderId = ?
+            ");
+            $itemStmt->bind_param("i", $row['orderId']);
+            $itemStmt->execute();
+            $itemResult = $itemStmt->get_result();
+            $items = [];
+            $labels = [];
+            while($item = $itemResult->fetch_assoc()) {
+                $items[] = $item;
+                if ($item['domainName']) {
+                    $labels[] = $item['domainName'] . ' - Domaine';
+                } else {
+                    $labels[] = $item['nameService'];
+                }
+            }
+            $row['items'] = $items;
+            $row['label'] = implode(', ', $labels);
             $factures[] = $row;
         }
         echo json_encode(["status" => "success", "data" => $factures]);
@@ -53,7 +75,7 @@ if ($method === 'GET') {
         $conn->begin_transaction();
         try {
             // 2. Create Payment Record
-            $payStmt = $conn->prepare("INSERT INTO payement (orderId, amount, methodPay, statusPay) VALUES (?, ?, 'balance', 'completed')");
+            $payStmt = $conn->prepare("INSERT INTO payement (orderId, amount, method, statusPay) VALUES (?, ?, 'balance', 'success')");
             $payStmt->bind_param("id", $orderId, $amount);
             $payStmt->execute();
 
@@ -74,7 +96,7 @@ if ($method === 'GET') {
             $items = $itemStmt->get_result();
 
             $subStmt = $conn->prepare("INSERT INTO subscription (userId, serviceId, startDate, endDate, statusSub) VALUES (?, ?, CURDATE(), DATE_ADD(CURDATE(), INTERVAL ? MONTH), 'active')");
-            $domStmt = $conn->prepare("INSERT INTO domaine (userId, domainName, expirationDate, statusDomaine) VALUES (?, ?, DATE_ADD(CURDATE(), INTERVAL ? MONTH), 'active')");
+            $domStmt = $conn->prepare("INSERT IGNORE INTO domaine (userId, domainName, expirationDate, statusDomaine) VALUES (?, ?, DATE_ADD(CURDATE(), INTERVAL ? MONTH), 'active')");
             
             while ($item = $items->fetch_assoc()) {
                 if ($item['domainName']) {
