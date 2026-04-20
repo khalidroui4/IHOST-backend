@@ -71,6 +71,18 @@ if ($method === 'GET') {
 
         logActivity($conn, $uId, 'payment', "Paiement de " . $amount . " DH", 'success');
 
+        // Build notification message from order items
+        $itemsForNotif = $conn->query("SELECT oi.domainName, s.nameService FROM order_items oi JOIN service s ON oi.serviceId = s.idService WHERE oi.orderId=$orderId");
+        $labels = [];
+        while($ni = $itemsForNotif->fetch_assoc()) {
+            $labels[] = $ni['domainName'] ? $ni['domainName'] . ' (Domaine)' : $ni['nameService'];
+        }
+        $itemList   = implode(', ', $labels);
+        $notifMsg   = "Votre commande a été confirmée : $itemList — Montant: " . number_format($amount, 2) . " DH";
+        $notifStmt  = $conn->prepare("INSERT INTO notification (userId, message, isRead) VALUES (?, ?, 0)");
+        $notifStmt->bind_param("is", $uId, $notifMsg);
+        $notifStmt->execute();
+
         $conn->commit();
         echo json_encode(["status" => "success", "message" => "Payment successful. Subscriptions activated."]);
     } catch (Exception $e) {

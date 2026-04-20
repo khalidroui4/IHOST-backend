@@ -61,6 +61,12 @@ if ($method === 'GET') {
             
             logActivity($conn, $id, 'system', "Mise à jour du profil (" . trim($fname . ' ' . $lname) . ")", 'info');
             
+            // Notification
+            $notifMsg = "Votre profil a été mis à jour avec succès.";
+            $notifStmt = $conn->prepare("INSERT INTO notification (userId, message, isRead) VALUES (?, ?, 0)");
+            $notifStmt->bind_param("is", $id, $notifMsg);
+            $notifStmt->execute();
+
             echo json_encode(["status" => "success", "user" => $user, "message" => "Profile updated successfully"]);
         } else {
             http_response_code(500);
@@ -85,6 +91,12 @@ if ($method === 'GET') {
                 
                 logActivity($conn, $id, 'system', "Mise à jour de l'avatar", 'info');
 
+                // Notification
+                $notifMsg = "Votre photo de profil a été mise à jour.";
+                $notifStmt = $conn->prepare("INSERT INTO notification (userId, message, isRead) VALUES (?, ?, 0)");
+                $notifStmt->bind_param("is", $id, $notifMsg);
+                $notifStmt->execute();
+
                 echo json_encode(["status" => "success", "avatar" => $avatarUrl, "user" => $user, "message" => "Avatar uploaded successfully"]);
             } else {
                 http_response_code(500);
@@ -108,6 +120,12 @@ if ($method === 'GET') {
             $conn->query("UPDATE users SET passwordU='$hashed' WHERE idU=$id");
             
             logActivity($conn, $id, 'system', "Mot de passe modifié", 'warning');
+
+            // Notification
+            $notifMsg = "Votre mot de passe a été modifié avec succès.";
+            $notifStmt = $conn->prepare("INSERT INTO notification (userId, message, isRead) VALUES (?, ?, 0)");
+            $notifStmt->bind_param("is", $id, $notifMsg);
+            $notifStmt->execute();
 
             echo json_encode(["status" => "success", "message" => "Password updated successfully"]);
         } else {
@@ -137,6 +155,12 @@ if ($method === 'GET') {
             $user['role'] = $user['roleU'];
             
             logActivity($conn, $id, 'system', "Adresse email modifiée", 'info');
+
+            // Notification
+            $notifMsg = "Votre adresse email a été mise à jour : $email";
+            $notifStmt = $conn->prepare("INSERT INTO notification (userId, message, isRead) VALUES (?, ?, 0)");
+            $notifStmt->bind_param("is", $id, $notifMsg);
+            $notifStmt->execute();
 
             echo json_encode(["status" => "success", "message" => "Email updated successfully", "user" => $user]);
         }

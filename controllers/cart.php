@@ -13,7 +13,7 @@ if ($method === 'GET') {
     $userId = $user['idU'];
 
     $stmt = $conn->prepare("
-        SELECT c.idCart, c.serviceId, c.durationMonths, c.domainName, s.nameService, s.descriptionS, s.price 
+        SELECT c.idCart, c.serviceId, c.durationMonths, c.domainName, s.nameService, s.descriptionS, s.price, s.typeService 
         FROM cart c 
         JOIN service s ON c.serviceId = s.idService 
         WHERE c.userId = ?
@@ -27,8 +27,7 @@ if ($method === 'GET') {
 
     while ($row = $result->fetch_assoc()) {
         $cartItems[] = $row;
-        // If it's a domain, price is annual. durationMonths is total months.
-        if ($row['domainName']) {
+        if ($row['typeService'] === 'domain') {
             $total += (float)$row['price'] * ((int)$row['durationMonths'] / 12);
         } else {
             $total += (float)$row['price'] * (int)$row['durationMonths'];

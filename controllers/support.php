@@ -82,6 +82,20 @@ if ($method === 'GET') {
         $stmt = $conn->prepare("INSERT INTO support_messages (ticketId, sender, message) VALUES (?, ?, ?)");
         $stmt->bind_param("iss", $tId, $sender, $msg);
         if($stmt->execute()) {
+            // If admin sent the message, notify the client
+            if ($sender === 'admin') {
+                $ticketRes = $conn->query("SELECT userId, subjectSupport FROM support WHERE idSupport=$tId");
+                if ($ticketRes && $ticketRow = $ticketRes->fetch_assoc()) {
+                    $clientId = $ticketRow['userId'];
+                    $subject  = $conn->real_escape_string($ticketRow['subjectSupport']);
+                    if ($clientId) {
+                        $notifMsg = "Nouveau message de support sur votre ticket : \"$subject\"";
+                        $notifStmt = $conn->prepare("INSERT INTO notification (userId, message, isRead) VALUES (?, ?, 0)");
+                        $notifStmt->bind_param("is", $clientId, $notifMsg);
+                        $notifStmt->execute();
+                    }
+                }
+            }
             echo json_encode(["status" => "success", "message" => "Message sent"]);
         }
     } else {
