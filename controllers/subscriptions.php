@@ -14,7 +14,7 @@ if ($method === 'GET') {
         }
         
         // Fetch subscriptions and join with service to get name, price etc
-        $stmt = $conn->prepare("SELECT sub.*, s.nameService, s.descriptionS, s.price FROM subscription sub JOIN service s ON sub.serviceId = s.idService WHERE sub.userId = ? ORDER BY sub.endDate ASC");
+        $stmt = $conn->prepare("SELECT sub.*, s.nameService, s.descriptionS, s.price, s.typeService FROM subscription sub JOIN service s ON sub.serviceId = s.idService WHERE sub.userId = ? ORDER BY sub.endDate ASC");
         $stmt->bind_param("i", $userId);
         $stmt->execute();
         $result = $stmt->get_result();

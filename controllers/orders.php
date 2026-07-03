@@ -63,6 +63,13 @@ if ($method === 'GET') {
     // Create new order from user's current cart
     $userId = $user['idU'];
 
+    // Decode request data for billing/shipping details
+    $data = json_decode(file_get_contents("php://input"));
+    $shipping_address = isset($data->shipping_address) ? $conn->real_escape_string($data->shipping_address) : '';
+    $city = isset($data->city) ? $conn->real_escape_string($data->city) : '';
+    $postal_code = isset($data->postal_code) ? $conn->real_escape_string($data->postal_code) : '';
+    $payment_method = isset($data->payment_method) ? $conn->real_escape_string($data->payment_method) : '';
+
     // 1. Fetch cart items
     $cartStmt = $conn->prepare("
         SELECT c.idCart, c.serviceId, c.durationMonths, c.domainName, s.price 
@@ -97,8 +104,8 @@ if ($method === 'GET') {
     $conn->begin_transaction();
     try {
         // 2. Create the main Order
-        $stmt = $conn->prepare("INSERT INTO orders (userId, totalAmount, statusOrder) VALUES (?, ?, 'pending')");
-        $stmt->bind_param("id", $userId, $totalFinal);
+        $stmt = $conn->prepare("INSERT INTO orders (userId, totalAmount, statusOrder, shipping_address, city, postal_code, payment_method) VALUES (?, ?, 'pending', ?, ?, ?, ?)");
+        $stmt->bind_param("idssss", $userId, $totalFinal, $shipping_address, $city, $postal_code, $payment_method);
         $stmt->execute();
         $orderId = $conn->insert_id;
 

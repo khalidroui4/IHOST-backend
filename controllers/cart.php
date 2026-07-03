@@ -5,6 +5,23 @@ require_once __DIR__ . '/../middleware/authMiddleware.php';
 $user = authenticate();
 $method = $_SERVER['REQUEST_METHOD'];
 
+if ($user['roleU'] === 'admin') {
+    if ($method === 'GET') {
+        echo json_encode([
+            "status" => "success",
+            "data" => [
+                "items" => [],
+                "total" => 0
+            ]
+        ]);
+        exit;
+    } else {
+        http_response_code(403);
+        echo json_encode(["status" => "error", "message" => "Les administrateurs ne peuvent pas utiliser le panier."]);
+        exit;
+    }
+}
+
 $parts = $GLOBALS['route_parts'] ?? [];
 $action = $GLOBALS['route_action'] ?? null;
 
@@ -85,12 +102,8 @@ if ($method === 'GET') {
     $res = $stmt->get_result();
 
     if ($res->num_rows > 0) {
-        $row = $res->fetch_assoc();
-        $stmt = $conn->prepare("UPDATE cart SET durationMonths = durationMonths + ? WHERE idCart = ?");
-        $stmt->bind_param("ii", $duration, $row['idCart']);
-        $stmt->execute();
-
-        echo json_encode(["status" => "success", "message" => "Cart updated"]);
+        http_response_code(409);
+        echo json_encode(["status" => "error", "message" => "Cet article est déjà dans votre panier."]);
     } else {
         $stmt = $conn->prepare("INSERT INTO cart (userId, serviceId, durationMonths, domainName) VALUES (?, ?, ?, ?)");
         $stmt->bind_param("iiis", $userId, $serviceId, $duration, $domainName);

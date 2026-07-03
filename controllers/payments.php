@@ -36,7 +36,7 @@ if ($method === 'GET') {
         $stmt->execute();
 
         // 2. Update Order + Facture Status
-        $conn->query("UPDATE orders SET statusOrder='paid' WHERE idOrder=$orderId");
+        $conn->query("UPDATE orders SET statusOrder='paid', payment_method='$payMethod' WHERE idOrder=$orderId");
         $conn->query("UPDATE facture SET statusFacture='paid' WHERE orderId=$orderId");
 
         // 3. Activate subscriptions and register domains for all items in the order
@@ -60,11 +60,43 @@ if ($method === 'GET') {
                 $callStmt->bind_param("ii", $uId, $sId);
                 $callStmt->execute();
 
-                // If it's a domain, populate the domaine table
+                // Select the latest inserted subscription ID for this user/service to overcome stored procedure insert_id return limitations
+                $findSub = $conn->prepare("SELECT idSub FROM subscription WHERE userId = ? AND serviceId = ? ORDER BY idSub DESC LIMIT 1");
+                $findSub->bind_param("ii", $uId, $sId);
+                $findSub->execute();
+                $findSubRes = $findSub->get_result();
+                if ($findSubRes && $findSubRes->num_rows > 0) {
+                    $subRow = $findSubRes->fetch_assoc();
+                    $subId = $subRow['idSub'];
+                    if ($subId && $dName) {
+                        $updateSubStmt = $conn->prepare("UPDATE subscription SET domainName = ? WHERE idSub = ?");
+                        $updateSubStmt->bind_param("si", $dName, $subId);
+                        $updateSubStmt->execute();
+                        $updateSubStmt->close();
+                    }
+                }
+                $findSub->close();
+
+                // If it's a domain, populate the domaine table or extend the expiration date if it already exists!
                 if ($sType === 'domain' && $dName) {
-                    $domStmt->bind_param("is", $uId, $dName);
-                    $domStmt->execute();
-                    logActivity($conn, $uId, 'domain_registered', "Domaine enregistré: " . $dName, 'active');
+                    $checkDom = $conn->prepare("SELECT idDomaine FROM domaine WHERE domainName = ?");
+                    $checkDom->bind_param("s", $dName);
+                    $checkDom->execute();
+                    $checkRes = $checkDom->get_result();
+                    if ($checkRes->num_rows > 0) {
+                        // Domain already exists: EXTEND expiration date by 1 year!
+                        $updateDom = $conn->prepare("UPDATE domaine SET expirationDate = DATE_ADD(expirationDate, INTERVAL 12 MONTH), statusDomaine = 'active' WHERE domainName = ?");
+                        $updateDom->bind_param("s", $dName);
+                        $updateDom->execute();
+                        $updateDom->close();
+                        logActivity($conn, $uId, 'domain_renewed', "Domaine renouvelé: " . $dName, 'active');
+                    } else {
+                        // Register new domain
+                        $domStmt->bind_param("is", $uId, $dName);
+                        $domStmt->execute();
+                        logActivity($conn, $uId, 'domain_registered', "Domaine enregistré: " . $dName, 'active');
+                    }
+                    $checkDom->close();
                 }
             }
         }

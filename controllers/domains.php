@@ -30,6 +30,110 @@ if ($method === 'GET') {
     if ($action === 'user') {
         $user   = authenticate();
         $userId = $param ? intval($param) : $user['idU'];
+        
+        // --- DYNAMIC AUTO-RENEW EXPIRY CHECK & TRANSACTION SIMULATION ---
+        // Find all domains for this user that are active, have auto_renew enabled, and are expired (expirationDate <= CURDATE())
+        $expiredQuery = $conn->prepare("
+            SELECT idDomaine, domainName, expirationDate 
+            FROM domaine 
+            WHERE userId = ? AND statusDomaine = 'active' AND auto_renew = 1 AND expirationDate <= CURDATE()
+        ");
+        $expiredQuery->bind_param("i", $userId);
+        $expiredQuery->execute();
+        $expiredRes = $expiredQuery->get_result();
+        
+        while ($expiredDom = $expiredRes->fetch_assoc()) {
+            $domId = $expiredDom['idDomaine'];
+            $domName = $expiredDom['domainName'];
+            
+            // Resolve price and serviceId based on domain extension
+            $parts_dom = explode('.', $domName);
+            $ext = "." . end($parts_dom);
+            
+            $serviceQuery = $conn->prepare("SELECT idService, price FROM service WHERE typeService='domain' AND LOWER(nameService) = ? AND isActive=1 LIMIT 1");
+            $serviceQuery->bind_param("s", $ext);
+            $serviceQuery->execute();
+            $serviceRes = $serviceQuery->get_result();
+            
+            if ($serviceRes && $serviceRes->num_rows > 0) {
+                $serviceRow = $serviceRes->fetch_assoc();
+                $serviceId = $serviceRow['idService'];
+                $price = (float)$serviceRow['price'];
+            } else {
+                $serviceId = 15; // default .COM
+                $price = 120.00;
+            }
+            $serviceQuery->close();
+            
+            $conn->begin_transaction();
+            try {
+                // 1. Create the Order
+                $orderStmt = $conn->prepare("
+                    INSERT INTO orders (userId, totalAmount, statusOrder, shipping_address, city, postal_code, payment_method) 
+                    VALUES (?, ?, 'paid', 'Auto-Renouvellement', 'Casablanca', '20000', 'credit_card')
+                ");
+                $orderStmt->bind_param("id", $userId, $price);
+                $orderStmt->execute();
+                $orderId = $conn->insert_id;
+                $orderStmt->close();
+                
+                // 2. Create Order Item
+                $itemStmt = $conn->prepare("
+                    INSERT INTO order_items (orderId, serviceId, durationMonths, price, domainName) 
+                    VALUES (?, ?, 12, ?, ?)
+                ");
+                $itemStmt->bind_param("iids", $orderId, $serviceId, $price, $domName);
+                $itemStmt->execute();
+                $itemStmt->close();
+                
+                // 3. Create Invoice (Facture) with 'paid' status
+                $invNumber = "INV-AUTO-" . time() . "-" . $orderId;
+                $invStmt = $conn->prepare("
+                    INSERT INTO facture (orderId, invoiceNumber, amount, statusFacture) 
+                    VALUES (?, ?, ?, 'paid')
+                ");
+                $invStmt->bind_param("isd", $orderId, $invNumber, $price);
+                $invStmt->execute();
+                $invStmt->close();
+                
+                // 4. Create Payment record
+                $payStmt = $conn->prepare("
+                    INSERT INTO payement (orderId, method, amount, statusPay, paidAt) 
+                    VALUES (?, 'credit_card', ?, 'success', CURRENT_TIMESTAMP)
+                ");
+                $payStmt->bind_param("id", $orderId, $price);
+                $payStmt->execute();
+                $payStmt->close();
+                
+                // 5. Update domain expiration Date (+1 year)
+                $updateDom = $conn->prepare("
+                    UPDATE domaine 
+                    SET expirationDate = DATE_ADD(expirationDate, INTERVAL 1 YEAR), statusDomaine = 'active' 
+                    WHERE idDomaine = ?
+                ");
+                $updateDom->bind_param("i", $domId);
+                $updateDom->execute();
+                $updateDom->close();
+                
+                // 6. Log activity
+                logActivity($conn, $userId, 'domain_autorenewed', "Renouvellement automatique: " . $domName, 'active');
+                
+                // 7. Insert notification
+                $notifMsg = "Renouvellement automatique réussi pour le domaine $domName. Facture $invNumber générée.";
+                $notifStmt = $conn->prepare("INSERT INTO notification (userId, message, isRead) VALUES (?, ?, 0)");
+                $notifStmt->bind_param("is", $userId, $notifMsg);
+                $notifStmt->execute();
+                $notifStmt->close();
+                
+                $conn->commit();
+            } catch (Exception $e) {
+                $conn->rollback();
+                error_log("Auto-renew failed for domain ID $domId: " . $e->getMessage());
+            }
+        }
+        $expiredQuery->close();
+
+        // Query final list of domains
         $stmt   = $conn->prepare("SELECT * FROM domaine WHERE userId = ?");
         $stmt->bind_param("i", $userId);
         $stmt->execute();
@@ -81,6 +185,49 @@ if ($method === 'GET') {
         } else {
             $isTaken = checkdnsrr($domain,'A') || checkdnsrr($domain,'MX') || checkdnsrr($domain,'NS') || (gethostbyname($domain) !== $domain);
             echo json_encode(["status" => "success", "available" => !$isTaken, "domain" => $domain, "source" => "dns_fallback"]);
+        }
+        exit;
+    }
+
+    // GET /domains/whois/{domainName}
+    if ($action === 'whois') {
+        $domain = $param;
+        if (empty($domain)) {
+            http_response_code(400);
+            echo json_encode(["status" => "error", "message" => "Domain name required"]);
+            exit;
+        }
+        $stmt = $conn->prepare("SELECT d.*, u.idU, u.nameU, u.email as user_email, u.username, u.avatar, u.first_name, u.last_name FROM domaine d JOIN users u ON d.userId = u.idU WHERE d.domainName = ?");
+        $stmt->bind_param("s", $domain);
+        $stmt->execute();
+        $res = $stmt->get_result();
+        if ($res->num_rows > 0) {
+            $row = $res->fetch_assoc();
+            $privacy = (bool)$row['whois_privacy'];
+            echo json_encode([
+                "status" => "success",
+                "registered" => true,
+                "data" => [
+                    "domainName" => $row['domainName'],
+                    "expirationDate" => $row['expirationDate'],
+                    "statusDomaine" => $row['statusDomaine'],
+                    "whois_privacy" => $privacy,
+                    "is_locked" => (bool)$row['is_locked'],
+                    "owner_id" => $privacy ? null : $row['idU'],
+                    "owner_name" => $privacy ? "Redacted for Privacy" : $row['nameU'],
+                    "owner_first_name" => $privacy ? "Redacted" : $row['first_name'],
+                    "owner_last_name" => $privacy ? "for Privacy" : $row['last_name'],
+                    "owner_username" => $privacy ? null : $row['username'],
+                    "owner_avatar" => $privacy ? null : $row['avatar'],
+                    "owner_email" => $privacy ? "whoisprivacy@ihost.ma" : $row['user_email']
+                ]
+            ]);
+        } else {
+            echo json_encode([
+                "status" => "success",
+                "registered" => false,
+                "message" => "Domain not registered on our platform"
+            ]);
         }
         exit;
     }
@@ -144,15 +291,43 @@ if ($method === 'PUT') {
     if ($action === 'renew') {
         $id  = intval($param);
         $dom = ownedDomain($conn, $id, $user['idU']);
-        $stmt = $conn->prepare("UPDATE domaine SET expirationDate = DATE_ADD(expirationDate, INTERVAL 1 YEAR), statusDomaine = 'active' WHERE idDomaine = ?");
-        $stmt->bind_param("i", $id);
-        $stmt->execute();
-        logActivity($conn, $user['idU'], 'domain_renewed', "Domaine renouvelé: " . $dom['domainName'], 'active');
-        $stmt2 = $conn->prepare("SELECT expirationDate FROM domaine WHERE idDomaine = ?");
-        $stmt2->bind_param("i", $id);
-        $stmt2->execute();
-        $row = $stmt2->get_result()->fetch_assoc();
-        echo json_encode(["status" => "success", "message" => "Domain renewed for 1 year", "newExpiry" => $row['expirationDate']]);
+        
+        // 1. Resolve price and serviceId based on domain extension
+        $parts_dom = explode('.', $dom['domainName']);
+        $ext = "." . end($parts_dom);
+        
+        $serviceQuery = $conn->prepare("SELECT idService FROM service WHERE typeService='domain' AND LOWER(nameService) = ? AND isActive=1 LIMIT 1");
+        $serviceQuery->bind_param("s", $ext);
+        $serviceQuery->execute();
+        $serviceRes = $serviceQuery->get_result();
+        
+        if ($serviceRes && $serviceRes->num_rows > 0) {
+            $serviceRow = $serviceRes->fetch_assoc();
+            $serviceId = $serviceRow['idService'];
+        } else {
+            $serviceId = 15; // default .COM
+        }
+        $serviceQuery->close();
+        
+        // 2. Add to user's cart (durationMonths = 12, domainName = $dom['domainName'])
+        $checkCart = $conn->prepare("SELECT idCart FROM cart WHERE userId = ? AND serviceId = ? AND domainName = ?");
+        $checkCart->bind_param("iis", $user['idU'], $serviceId, $dom['domainName']);
+        $checkCart->execute();
+        $checkCartRes = $checkCart->get_result();
+        
+        if ($checkCartRes->num_rows === 0) {
+            $addCart = $conn->prepare("INSERT INTO cart (userId, serviceId, durationMonths, domainName) VALUES (?, ?, 12, ?)");
+            $addCart->bind_param("iis", $user['idU'], $serviceId, $dom['domainName']);
+            $addCart->execute();
+            $addCart->close();
+        }
+        $checkCart->close();
+        
+        echo json_encode([
+            "status" => "success",
+            "addedToCart" => true,
+            "message" => "Domain renewal added to cart"
+        ]);
         exit;
     }
 

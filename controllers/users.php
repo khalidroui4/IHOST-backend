@@ -1,9 +1,54 @@
 <?php
 require __DIR__ . '/../config/db.php';
-require __DIR__ . '/../middleware/authMiddleware.php';
-
-$userAuth = authenticate();
 $method = $_SERVER['REQUEST_METHOD'];
+$action = isset($parts[1]) ? $parts[1] : '';
+
+if ($method === 'GET' && $action === 'public') {
+    $identifier = isset($parts[2]) ? $parts[2] : '';
+    if (empty($identifier)) {
+        http_response_code(400);
+        echo json_encode(["status" => "error", "message" => "Identifier required"]);
+        exit;
+    }
+
+    if (is_numeric($identifier)) {
+        $stmt = $conn->prepare("SELECT idU, first_name, last_name, username, location, website, bio, avatar, createdAt FROM users WHERE idU = ?");
+        $stmt->bind_param("i", $identifier);
+    } else {
+        $stmt = $conn->prepare("SELECT idU, first_name, last_name, username, location, website, bio, avatar, createdAt FROM users WHERE username = ?");
+        $stmt->bind_param("s", $identifier);
+    }
+
+    $stmt->execute();
+    $result = $stmt->get_result();
+
+    if ($result->num_rows > 0) {
+        $user = $result->fetch_assoc();
+        $userId = $user['idU'];
+        
+        $domStmt = $conn->prepare("SELECT COUNT(*) as count FROM domaine WHERE userId = ?");
+        $domStmt->bind_param("i", $userId);
+        $domStmt->execute();
+        $domCount = $domStmt->get_result()->fetch_assoc()['count'] ?? 0;
+        
+        $hostStmt = $conn->prepare("SELECT COUNT(*) as count FROM subscription WHERE userId = ? AND statusSub = 'active'");
+        $hostStmt->bind_param("i", $userId);
+        $hostStmt->execute();
+        $hostCount = $hostStmt->get_result()->fetch_assoc()['count'] ?? 0;
+        
+        $user['domainCount'] = $domCount;
+        $user['hostingCount'] = $hostCount;
+        
+        echo json_encode(["status" => "success", "data" => $user]);
+    } else {
+        http_response_code(404);
+        echo json_encode(["status" => "error", "message" => "User not found"]);
+    }
+    exit;
+}
+
+require __DIR__ . '/../middleware/authMiddleware.php';
+$userAuth = authenticate();
 $action = isset($parts[1]) ? $parts[1] : '';
 
 if ($method === 'GET') {
