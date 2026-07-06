@@ -30,7 +30,7 @@ if ($method === 'GET') {
     $userId = $user['idU'];
 
     $stmt = $conn->prepare("
-        SELECT c.idCart, c.serviceId, c.durationMonths, c.domainName, s.nameService, s.descriptionS, s.price, s.typeService 
+        SELECT c.idCart, c.serviceId, c.durationMonths, c.domainName, c.whois_privacy, s.nameService, s.descriptionS, s.price, s.typeService 
         FROM cart c 
         JOIN service s ON c.serviceId = s.idService 
         WHERE c.userId = ?
@@ -45,7 +45,11 @@ if ($method === 'GET') {
     while ($row = $result->fetch_assoc()) {
         $cartItems[] = $row;
         if ($row['typeService'] === 'domain') {
-            $total += (float)$row['price'] * ((int)$row['durationMonths'] / 12);
+            $itemTotal = (float)$row['price'] * ((int)$row['durationMonths'] / 12);
+            if ((int)$row['whois_privacy'] === 1) {
+                $itemTotal += 50.0 * ((int)$row['durationMonths'] / 12);
+            }
+            $total += $itemTotal;
         } else {
             $total += (float)$row['price'] * (int)$row['durationMonths'];
         }
@@ -105,8 +109,9 @@ if ($method === 'GET') {
         http_response_code(409);
         echo json_encode(["status" => "error", "message" => "Cet article est déjà dans votre panier."]);
     } else {
-        $stmt = $conn->prepare("INSERT INTO cart (userId, serviceId, durationMonths, domainName) VALUES (?, ?, ?, ?)");
-        $stmt->bind_param("iiis", $userId, $serviceId, $duration, $domainName);
+        $whois_privacy = isset($data->includePrivacy) ? intval($data->includePrivacy) : 0;
+        $stmt = $conn->prepare("INSERT INTO cart (userId, serviceId, durationMonths, domainName, whois_privacy) VALUES (?, ?, ?, ?, ?)");
+        $stmt->bind_param("iiisi", $userId, $serviceId, $duration, $domainName, $whois_privacy);
 
         if ($stmt->execute()) {
             
@@ -147,8 +152,14 @@ if ($method === 'GET') {
     $duration = intval($data->durationMonths);
     $userId = $user['idU'];
 
-    $stmt = $conn->prepare("UPDATE cart SET durationMonths = ? WHERE idCart = ? AND userId = ?");
-    $stmt->bind_param("iii", $duration, $idCart, $userId);
+    $whois = isset($data->whois_privacy) ? intval($data->whois_privacy) : null;
+    if ($whois !== null) {
+        $stmt = $conn->prepare("UPDATE cart SET durationMonths = ?, whois_privacy = ? WHERE idCart = ? AND userId = ?");
+        $stmt->bind_param("iiii", $duration, $whois, $idCart, $userId);
+    } else {
+        $stmt = $conn->prepare("UPDATE cart SET durationMonths = ? WHERE idCart = ? AND userId = ?");
+        $stmt->bind_param("iii", $duration, $idCart, $userId);
+    }
 
     if ($stmt->execute()) {
         echo json_encode(["status" => "success", "message" => "Item updated"]);

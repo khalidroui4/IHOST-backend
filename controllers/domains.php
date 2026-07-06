@@ -166,6 +166,20 @@ if ($method === 'GET') {
             echo json_encode(["status" => "error", "message" => "Domain name required"]); exit;
         }
         if (strpos($domain, '.') === false) $domain .= ".com";
+
+        // Check if domain is registered by any user in our system
+        $checkStmt = $conn->prepare("SELECT idDomaine FROM domaine WHERE LOWER(domainName) = ?");
+        $lowDomain = strtolower($domain);
+        $checkStmt->bind_param("s", $lowDomain);
+        $checkStmt->execute();
+        $checkStmt->store_result();
+        if ($checkStmt->num_rows > 0) {
+            $checkStmt->close();
+            echo json_encode(["status" => "success", "available" => false, "domain" => $domain, "source" => "local_database"]);
+            exit;
+        }
+        $checkStmt->close();
+
         $url = "https://rdap.org/domain/" . urlencode($domain);
         $ch  = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
@@ -362,6 +376,27 @@ if ($method === 'PUT') {
         $id  = intval($param);
         $dom = ownedDomain($conn, $id, $user['idU']);
         $new = $dom['whois_privacy'] ? 0 : 1;
+
+        // If turning ON, check if they have a valid active subscription for WHOIS protection
+        if ($new === 1) {
+            $checkSub = $conn->prepare("
+                SELECT sub.idSub 
+                FROM subscription sub 
+                JOIN service s ON sub.serviceId = s.idService 
+                WHERE sub.userId = ? AND sub.domainName = ? AND s.nameService = 'Protection WHOIS' AND sub.endDate >= CURDATE()
+                LIMIT 1
+            ");
+            $checkSub->bind_param("is", $user['idU'], $dom['domainName']);
+            $checkSub->execute();
+            $subRes = $checkSub->get_result();
+            if ($subRes->num_rows === 0) {
+                http_response_code(402);
+                echo json_encode(["status" => "error", "message" => "Veuillez acheter l'extension Protection WHOIS pour activer cette fonctionnalité."]);
+                exit;
+            }
+            $checkSub->close();
+        }
+
         $stmt = $conn->prepare("UPDATE domaine SET whois_privacy = ? WHERE idDomaine = ?");
         $stmt->bind_param("ii", $new, $id);
         $stmt->execute();

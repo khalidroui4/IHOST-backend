@@ -42,40 +42,29 @@ if ($method === 'GET') {
         // 3. Activate subscriptions and register domains for all items in the order
         $uId = $user['idU'];
         $itemsRes = $conn->query("
-            SELECT oi.serviceId, oi.domainName, s.typeService 
+            SELECT oi.serviceId, oi.durationMonths, oi.domainName, oi.whois_privacy, s.typeService 
             FROM order_items oi 
             JOIN service s ON oi.serviceId = s.idService 
             WHERE oi.orderId=$orderId
         ");
         if ($itemsRes && $itemsRes->num_rows > 0) {
-            $callStmt = $conn->prepare("CALL activate_subscription(?, ?)");
-            $domStmt = $conn->prepare("INSERT IGNORE INTO domaine (userId, domainName, expirationDate, statusDomaine) VALUES (?, ?, DATE_ADD(CURDATE(), INTERVAL 12 MONTH), 'active')");
+            $domStmt = $conn->prepare("INSERT IGNORE INTO domaine (userId, domainName, expirationDate, statusDomaine, whois_privacy) VALUES (?, ?, DATE_ADD(CURDATE(), INTERVAL 12 MONTH), 'active', ?)");
 
             while($item = $itemsRes->fetch_assoc()) {
                 $sId = $item['serviceId'];
                 $dName = $item['domainName'] ?? null;
                 $sType = $item['typeService'];
+                $whoisPrivacy = intval($item['whois_privacy']);
+                $duration = isset($item['durationMonths']) && intval($item['durationMonths']) > 0 ? intval($item['durationMonths']) : 1;
                 
-                // Activate subscription
-                $callStmt->bind_param("ii", $uId, $sId);
-                $callStmt->execute();
-
-                // Select the latest inserted subscription ID for this user/service to overcome stored procedure insert_id return limitations
-                $findSub = $conn->prepare("SELECT idSub FROM subscription WHERE userId = ? AND serviceId = ? ORDER BY idSub DESC LIMIT 1");
-                $findSub->bind_param("ii", $uId, $sId);
-                $findSub->execute();
-                $findSubRes = $findSub->get_result();
-                if ($findSubRes && $findSubRes->num_rows > 0) {
-                    $subRow = $findSubRes->fetch_assoc();
-                    $subId = $subRow['idSub'];
-                    if ($subId && $dName) {
-                        $updateSubStmt = $conn->prepare("UPDATE subscription SET domainName = ? WHERE idSub = ?");
-                        $updateSubStmt->bind_param("si", $dName, $subId);
-                        $updateSubStmt->execute();
-                        $updateSubStmt->close();
-                    }
-                }
-                $findSub->close();
+                // Activate subscription directly in PHP instead of calling a stored procedure
+                $subInsert = $conn->prepare("
+                    INSERT INTO subscription (userId, serviceId, startDate, endDate, statusSub, domainName) 
+                    VALUES (?, ?, CURDATE(), DATE_ADD(CURDATE(), INTERVAL ? MONTH), 'active', ?)
+                ");
+                $subInsert->bind_param("iiis", $uId, $sId, $duration, $dName);
+                $subInsert->execute();
+                $subInsert->close();
 
                 // If it's a domain, populate the domaine table or extend the expiration date if it already exists!
                 if ($sType === 'domain' && $dName) {
@@ -85,20 +74,38 @@ if ($method === 'GET') {
                     $checkRes = $checkDom->get_result();
                     if ($checkRes->num_rows > 0) {
                         // Domain already exists: EXTEND expiration date by 1 year!
-                        $updateDom = $conn->prepare("UPDATE domaine SET expirationDate = DATE_ADD(expirationDate, INTERVAL 12 MONTH), statusDomaine = 'active' WHERE domainName = ?");
-                        $updateDom->bind_param("s", $dName);
+                        $updateDom = $conn->prepare("UPDATE domaine SET expirationDate = DATE_ADD(expirationDate, INTERVAL 12 MONTH), statusDomaine = 'active', whois_privacy = ? WHERE domainName = ?");
+                        $updateDom->bind_param("is", $whoisPrivacy, $dName);
                         $updateDom->execute();
                         $updateDom->close();
                         logActivity($conn, $uId, 'domain_renewed', "Domaine renouvelé: " . $dName, 'active');
                     } else {
                         // Register new domain
-                        $domStmt->bind_param("is", $uId, $dName);
+                        $domStmt->bind_param("isi", $uId, $dName, $whoisPrivacy);
                         $domStmt->execute();
                         logActivity($conn, $uId, 'domain_registered', "Domaine enregistré: " . $dName, 'active');
                     }
                     $checkDom->close();
+
+                    // If WHOIS privacy was purchased with the domain, also register a WHOIS protection subscription!
+                    if ($whoisPrivacy === 1) {
+                        $whoisServiceQuery = $conn->query("SELECT idService FROM service WHERE nameService = 'Protection WHOIS' LIMIT 1");
+                        if ($whoisServiceQuery && $whoisServiceQuery->num_rows > 0) {
+                            $whoisService = $whoisServiceQuery->fetch_assoc();
+                            $whoisServiceId = $whoisService['idService'];
+                            
+                            $whoisSub = $conn->prepare("
+                                INSERT INTO subscription (userId, serviceId, startDate, endDate, statusSub, domainName) 
+                                VALUES (?, ?, CURDATE(), DATE_ADD(CURDATE(), INTERVAL ? MONTH), 'active', ?)
+                            ");
+                            $whoisSub->bind_param("iiis", $uId, $whoisServiceId, $duration, $dName);
+                            $whoisSub->execute();
+                            $whoisSub->close();
+                        }
+                    }
                 }
             }
+            $domStmt->close();
         }
 
         logActivity($conn, $uId, 'payment', "Paiement de " . $amount . " DH", 'success');
