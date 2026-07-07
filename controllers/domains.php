@@ -31,8 +31,6 @@ if ($method === 'GET') {
         $user   = authenticate();
         $userId = $param ? intval($param) : $user['idU'];
         
-        // --- DYNAMIC AUTO-RENEW EXPIRY CHECK & TRANSACTION SIMULATION ---
-        // Find all domains for this user that are active, have auto_renew enabled, and are expired (expirationDate <= CURDATE())
         $expiredQuery = $conn->prepare("
             SELECT idDomaine, domainName, expirationDate 
             FROM domaine 
@@ -46,7 +44,6 @@ if ($method === 'GET') {
             $domId = $expiredDom['idDomaine'];
             $domName = $expiredDom['domainName'];
             
-            // Resolve price and serviceId based on domain extension
             $parts_dom = explode('.', $domName);
             $ext = "." . end($parts_dom);
             
